@@ -9,7 +9,7 @@ import craig.ai.Helper.TrainingType;
 public class NetworkRunner 
 {
 	// Number of epochs to run
-	final static int numberOfEpochs = 2;
+	final static int numberOfEpochs = 20;
 	
 	// Print epoch every N iterations
 	final static int epochIteration = 1;

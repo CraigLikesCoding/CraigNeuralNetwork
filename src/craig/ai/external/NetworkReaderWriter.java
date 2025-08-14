@@ -1,4 +1,4 @@
-package craig.ai;
+package craig.ai.external;
 
 import java.io.FileReader;
 import java.io.FileWriter;
@@ -9,6 +9,8 @@ import java.util.List;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
+import craig.ai.Connection;
+import craig.ai.Neuron;
 import craig.ai.layers.Layer;
 
 // This class is used for exporting and importing the Network.

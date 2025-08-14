@@ -10,6 +10,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 
+import craig.ai.external.MNISTLoader;
+import craig.ai.external.NetworkReaderWriter;
 import craig.ai.layers.Layer;
 import craig.ai.layers.SigmoidLayer;
 import craig.ai.layers.SoftmaxLayer;

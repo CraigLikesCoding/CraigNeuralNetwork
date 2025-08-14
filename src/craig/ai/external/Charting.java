@@ -1,4 +1,4 @@
-package craig.ai;
+package craig.ai.external;
 
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;

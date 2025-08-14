@@ -5,6 +5,8 @@ import java.util.ArrayList;
 import java.util.Random;
 
 import craig.ai.Helper.TrainingType;
+import craig.ai.external.Charting;
+import craig.ai.external.MNISTLoader;
 
 public class NetworkRunner 
 {

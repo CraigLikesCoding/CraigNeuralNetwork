@@ -1,5 +1,7 @@
 package craig.ai;
 
+import craig.ai.helpers.Helper;
+
 public class Connection 
 {
 

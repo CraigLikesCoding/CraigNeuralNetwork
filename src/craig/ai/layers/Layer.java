@@ -3,6 +3,8 @@ package craig.ai.layers;
 import java.util.List;
 
 import craig.ai.Neuron;
+import craig.ai.helpers.Helper.LossMode;
+import craig.ai.loss.Loss;
 
 public interface Layer 
 {	
@@ -54,4 +56,8 @@ public interface Layer
     public void addNeuron(Neuron neuron);
     
     public void printLayer();
+    
+    public void setLoss(Loss loss);
+    
+    public LossMode getLossMode();
 }

@@ -3,6 +3,8 @@ package craig.ai;
 import java.util.ArrayList;
 import java.util.List;
 
+import craig.ai.helpers.Helper;
+
 public class Neuron 
 {
 

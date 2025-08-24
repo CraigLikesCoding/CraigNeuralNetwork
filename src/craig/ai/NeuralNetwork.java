@@ -10,12 +10,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Random;
 
+import craig.ai.external.ImageLoader;
 import craig.ai.external.MNISTLoader;
 import craig.ai.external.NetworkReaderWriter;
+import craig.ai.helpers.ArgMaxAnalyzer;
+import craig.ai.helpers.Helper;
+import craig.ai.helpers.ThresholdAnalyzer;
 import craig.ai.layers.Layer;
+import craig.ai.layers.ReLULayer;
 import craig.ai.layers.SigmoidLayer;
 import craig.ai.layers.SoftmaxLayer;
 import craig.ai.layers.TanhLayer;
+import craig.ai.loss.BCELoss;
+import craig.ai.loss.CCELoss;
+import craig.ai.loss.Loss;
+import craig.ai.loss.MSELoss;
 
 public class NeuralNetwork 
 {
@@ -42,8 +51,8 @@ public class NeuralNetwork
 	// unless your numberOfEpochs is under 5.
 	private boolean printDebug = false;
 	
-	// After each epoch, calculate the MSE and store it here for future reference or graphing
-	ArrayList<HashMap<Integer, Double>> mseList = new ArrayList<>();
+	// After each epoch, calculate the loss and store it here for future reference or graphing
+	ArrayList<HashMap<Integer, Double>> lossList = new ArrayList<>();
 	
 	// Helper class for generating training values
 	Helper helper;
@@ -55,6 +64,10 @@ public class NeuralNetwork
 	// If we're running in batch, this will store the number of training pairs to run before
 	// actually updating weights and biases
 	private int batchSize;
+	
+	// This object will hold our Loss logic, which needs to be injected into the output Layer
+	// and will also be used for tracking the improved loss with each epoch:
+	private Loss loss;
 	
 	public NeuralNetwork(int numberOfEpochs, int epochIteration, double learningRate, int layerCount, int[] nodeCounts)
 	{
@@ -68,16 +81,27 @@ public class NeuralNetwork
 		
 		// First we'll instantiate each Layer (as a Sigmoid to start, then maybe modify them later)
 		// And now at this point we have Tanh Layers as well.  So our hidden Layers will be Tanh, while
-		// the output Layer will be Sigmoid.
+		// the output Layer will be Sigmoid.  And now I just added ReLU which is supposedly good for
+		// image reading.  So we'll swap the hidden Layers for ReLU instead.
 		for (int i = 0; i < layerCount; i++)
 		{
 			if (i < layerCount - 1)
 			{
-				layer = (Layer) new TanhLayer(nodeCounts[i]);
+				layer = (Layer) new ReLULayer(nodeCounts[i]);
 			}
 			else
 			{
+				// This is the output Layer:
 				layer = (Layer) new SoftmaxLayer(nodeCounts[i]);
+				
+				// At this point, I have extracted the loss logic from the Layer itself, in case 
+				// we need to mix and match loss or loss derivative logic with the output Layer.
+				// Originally, Sigmoid and MSE were tightly coupled.  Now we can inject whatever
+				// loss logic we want through an implementation of a Loss interface.  Right now
+				// we'll start with MSE and BCE...and now with CCE added (for Softmax only).
+				loss = new CCELoss();
+				
+				layer.setLoss(loss);
 			}
 			
 			if (i == 0)
@@ -200,7 +224,7 @@ public class NeuralNetwork
             	}
             }
             
-            calculateAndSaveMSE(inputs, expectedOutputs);
+            calculateAndSaveLoss(inputs, expectedOutputs);
             
             if (epoch % epochIteration == 0)
             {
@@ -305,21 +329,105 @@ public class NeuralNetwork
             	}
             }
             
-            calculateAndSaveMSE(inputs, expectedOutputs);
+            calculateAndSaveLoss(inputs, expectedOutputs);
+                        
+            //if (epoch % epochIteration == 0)
+            {
+            	printInfoAtEpochIteration(epoch, inputs, expectedOutputs);
+            }
             
             if (epoch % epochIteration == 0)
             {
-            	printInfoAtEpochIteration(epoch, inputs, expectedOutputs);
+            	exportWeightsAndBiases();
+            	
+        		String folderPath = "/Users/craigadelhardt/Documents/neural network validation images";
+        		
+        		List<double[]> inputsForValidation = new ArrayList<>();
+        		List<int[]> labels = new ArrayList<>();
+        		List<String> fileNames = new ArrayList<>();
+        		
+        		try 
+        		{
+					ImageLoader.loadImages(folderPath, inputsForValidation, labels, fileNames);
+				} 
+        		catch (IOException e) 
+        		{
+					System.out.println("Problem loading images");
+					e.printStackTrace();
+				}
+        		        		
+				double[][] actualValidationOutputs = new double[inputsForValidation.size()][labels.get(0).length];
+				double[][] actualValidationInputs = new double[labels.size()][inputsForValidation.get(0).length];
+				
+        		for (int i = 0; i < inputsForValidation.size(); i++)
+        		{
+        			for (int j = 0; j < inputsForValidation.get(i).length; j++)
+        			{
+        				actualValidationInputs[i][j] = inputsForValidation.get(i)[j];
+        			}
+        			
+        			for (int j = 0; j < labels.get(i).length; j++)
+        			{
+        				actualValidationOutputs[i][j] = labels.get(i)[j];
+        			}
+        		}
+		        
+				double[] input;
+				
+				System.out.println();
+				
+				ArgMaxAnalyzer argMaxAnalyzer = new ArgMaxAnalyzer(layers.get(layers.size() - 1).getNeurons().size()); 
+				
+				int argMaxIndex;
+				int trueIndex;
+				
+		        for (int i = 0; i < actualValidationInputs.length; i++) 
+		        {
+		        	input = actualValidationInputs[i];
+		        	
+		        	forwardFeed(input);
+		        	
+		        	argMaxIndex = ArgMaxAnalyzer.getArgMax(layers.get(layers.size() - 1).getNeurons());
+		        	trueIndex = ArgMaxAnalyzer.getArgMax(actualValidationOutputs[i]);
+		        	
+		        	argMaxAnalyzer.addPrediction(argMaxIndex, trueIndex);
+		        }
+		        
+		        argMaxAnalyzer.printF1Stats();
             }
         }
 	}
 
-	private void calculateAndSaveMSE(double[][] inputs, double[][] expectedOutputs)
+	private void calculateAndSaveLoss(double[][] inputs, double[][] expectedOutputs)
+	{
+        switch ((layers.get(layers.size() - 1).getLossMode()))
+        {
+        	case Helper.LossMode.SCALAR:
+        	{
+        		calculateAndSaveLossScalar(inputs, expectedOutputs);
+        		
+        		break;
+        	}
+        	case Helper.LossMode.VECTOR:
+        	{
+        		calculateAndSaveLossVector(inputs, expectedOutputs);
+        		
+        		break;
+        	}
+        	default:
+        	{
+        		throw new IllegalStateException("Unexpected loss mode: " + layers.get(layers.size() - 1).getLossMode());
+        	}
+        }
+	}
+	
+	// This method is called when the Loss function is scalar (BCE and MSE so far).
+	private void calculateAndSaveLossScalar(double[][] inputs, double[][] expectedOutputs)
 	{
 	    int outputCount = layers.get(layers.size() - 1).getNeurons().size();
 	    double[] totalLossPerOutput = new double[outputCount];
 	    
-	    HashMap<Integer, Double> msePerOutput = new HashMap<>();
+	    HashMap<Integer, Double> lossPerOutput = new HashMap<>();
 	    
 	    for (int j = 0; j < inputs.length; j++) 
 	    {
@@ -329,7 +437,7 @@ public class NeuralNetwork
 	        {
 	        	double actual = layers.get(layers.size() - 1).getNeurons().get(k).getOutputValue();
 	            double expected = expectedOutputs[j][k];
-	            totalLossPerOutput[k] += Math.pow(actual - expected, 2);
+	            totalLossPerOutput[k] += loss.loss(expected, actual);
 	        }
 	    }
 	    
@@ -338,12 +446,43 @@ public class NeuralNetwork
 	    	// Average the total loss per output by inputs
 	        totalLossPerOutput[k] /= inputs.length; 
 	        
-	        msePerOutput.put(k, totalLossPerOutput[k]);
+	        lossPerOutput.put(k, totalLossPerOutput[k]);
 	    }
 	   
-	    mseList.add(msePerOutput);
+	    lossList.add(lossPerOutput);
 	}
 
+	// This method is called when the Loss function is vector (CCE so far).
+	private void calculateAndSaveLossVector(double[][] inputs, double[][] expectedOutputs)
+	{
+	    int outputCount = layers.get(layers.size() - 1).getNeurons().size();
+	    double[] totalLoss = new double[1];
+	    
+	    HashMap<Integer, Double> lossPerOutput = new HashMap<>();
+	    
+	    for (int j = 0; j < inputs.length; j++) 
+	    {
+	        forwardFeed(inputs[j]);
+	        
+	        double[] actual = new double[outputCount];
+	        double[] expected = new double[outputCount];	        
+	        
+	        for (int k = 0; k < outputCount; k++) 
+	        {
+	        	actual[k] = layers.get(layers.size() - 1).getNeurons().get(k).getOutputValue();
+	            expected[k] = expectedOutputs[j][k];
+	        }
+	        
+	        totalLoss[0] += loss.loss(expected, actual);
+	    }
+
+	    totalLoss[0] /= inputs.length;	    
+	    
+	    lossPerOutput.put(-1, totalLoss[0]);
+	   
+	    lossList.add(lossPerOutput);
+	}
+	
 	
     private void forwardFeed(double[] inputs) 
     { 
@@ -528,6 +667,115 @@ public class NeuralNetwork
 		}
 	}
 	
+	public void printTurtleResults(double[][] trainingInputs, double[][] trainingOutputs, List<String> fileNames)
+	{
+		switch (loss.getMode())
+		{
+			case Helper.LossMode.SCALAR:
+			{
+				double[] input;
+				
+				System.out.println();
+				
+				List<ThresholdAnalyzer> thresholdAnalyzers = new ArrayList<>(); 
+				
+				double threshold;
+				
+		        for (int i = 0; i < trainingInputs.length; i++) 
+		        {
+		        	input = trainingInputs[i];
+		        	
+		        	forwardFeed(input);
+		        	
+		        	thresholdAnalyzers.add(new ThresholdAnalyzer(layers.get(layers.size() - 1).getNeurons().get(0).getOutputValue(), trainingOutputs[i][0]));
+		        }
+		        
+		        threshold = ThresholdAnalyzer.chooseBestThreshold(thresholdAnalyzers);
+		        
+		        for (int i = 0; i < trainingInputs.length; i++)
+		        {
+		        	input = trainingInputs[i];
+		        	
+		        	forwardFeed(input);
+		        	
+//		        	System.out.print("Input :\n");
+//		        	ImageLoader.printImageASCII(input);
+//		        	System.out.print("\n");
+		        	
+		            System.out.printf("Expect: [");
+		        	for (double output: trainingOutputs[i])
+		        	{
+		        		System.out.printf("%.6f ", output);
+		        	}
+		        	System.out.print("]\n");
+		            
+		            System.out.printf("Actual: [");
+		            for (Neuron n: layers.get(layers.size() - 1).getNeurons())
+		            {
+		            	System.out.printf("%.6f ", n.getOutputValue());
+		            }
+		            System.out.printf("]%n");
+		            
+		            System.out.printf("Predicted: %s%n", (layers.get(layers.size() - 1).getNeurons().get(0).getOutputValue() >= threshold) ? "Turtle" : "Other");
+		            
+		            System.out.printf("Name: [%s]%n%n", fileNames.get(i));
+		        }
+		        
+		        break;
+			}
+			case Helper.LossMode.VECTOR:
+			{
+				double[] input;
+				
+				System.out.println();
+				
+				ArgMaxAnalyzer argMaxAnalyzer = new ArgMaxAnalyzer(layers.get(layers.size() - 1).getNeurons().size()); 
+				
+				int argMaxIndex;
+				int trueIndex;
+				
+		        for (int i = 0; i < trainingInputs.length; i++) 
+		        {
+		        	input = trainingInputs[i];
+		        	
+		        	forwardFeed(input);
+		        	
+		        	argMaxIndex = ArgMaxAnalyzer.getArgMax(layers.get(layers.size() - 1).getNeurons());
+		        	trueIndex = ArgMaxAnalyzer.getArgMax(trainingOutputs[i]);
+		        	
+		        	argMaxAnalyzer.addPrediction(argMaxIndex, trueIndex);
+		        	
+		            System.out.printf("Expect: [");
+		        	for (double output: trainingOutputs[i])
+		        	{
+		        		System.out.printf("%.6f ", output);
+		        	}
+		        	System.out.print("]\n");
+		            
+		            System.out.printf("Actual: [");
+		            for (Neuron n: layers.get(layers.size() - 1).getNeurons())
+		            {
+		            	System.out.printf("%.6f ", n.getOutputValue());
+		            }
+		            System.out.printf("]%n");
+		            
+		            System.out.printf("Predicted: %s%n", (argMaxIndex == 0) ? "Turtle" : "Other");
+		            
+		            System.out.printf("Name: [%s]%n%n", fileNames.get(i));
+		        }
+		        
+		        argMaxAnalyzer.printF1Stats();
+		        	
+				break;
+			}
+			default:
+			{
+				System.out.println("Invalid Loss Mode selected " + loss.getMode());
+			}
+		}
+		
+	}
+	
 	public void printMNISTResults(double[][] trainingInputs, double[][] trainingOutputs)
 	{
 		double[] input;
@@ -604,58 +852,10 @@ public class NeuralNetwork
 
     	//printResults(inputs,  expectedOutputs);
     	
-    	System.out.println("Epoch " + epoch + ", MSE: " + mseList.get(epoch));
+    	System.out.println();
+		System.out.println("Epoch " + epoch + " " + loss.getClass() + " " + lossList.get(epoch));
     	
     	//System.out.println("--------------------------");
-	}
-    
-	// This was used to initiate a Network that could be deterministic and comparable to the 
-	// non-OOP version of my code that I created and worked already.  This was helpful for stepping
-	// through the system as it ran in parallel with watching the non-OOP system run.  This is 
-	// useful only for XOR learning with inputs of {[0,0],[0,1],[1,0],[1,1]} and will produce
-	// a successful output.  
-	private void seedNetwork()
-	{
-		// Weights From Input (Layer 0) To Hidden Layer 0 (Layer 1)
-	    layers.get(0).getNeurons().get(0).getOutgoing().get(0).setWeight(-0.49374066664118454);
-	    layers.get(0).getNeurons().get(0).getOutgoing().get(1).setWeight( 0.21387611998075173);
-	    layers.get(0).getNeurons().get(0).getOutgoing().get(2).setWeight(-0.09941186582161810);
-	    layers.get(0).getNeurons().get(0).getOutgoing().get(3).setWeight( 0.32897686226310420);
-
-	    layers.get(0).getNeurons().get(1).getOutgoing().get(0).setWeight( 0.60240370691785890);
-	    layers.get(0).getNeurons().get(1).getOutgoing().get(1).setWeight( 0.09450286710529077);
-	    layers.get(0).getNeurons().get(1).getOutgoing().get(2).setWeight(-0.55748926858078860);
-	    layers.get(0).getNeurons().get(1).getOutgoing().get(3).setWeight( 0.10304643409175185);
-
-	    // Weights From Hidden Layer 0 (Layer 1) To Hidden Layer 1 (Layer 2)
-	    layers.get(1).getNeurons().get(0).getOutgoing().get(0).setWeight(-0.41118280924008930);
-	    layers.get(1).getNeurons().get(0).getOutgoing().get(1).setWeight( 0.61872656885185020);
-
-	    layers.get(1).getNeurons().get(1).getOutgoing().get(0).setWeight( 0.31686833046069050);
-	    layers.get(1).getNeurons().get(1).getOutgoing().get(1).setWeight(-0.38653245202219066);
-
-	    layers.get(1).getNeurons().get(2).getOutgoing().get(0).setWeight( 0.31265739503449486);
-	    layers.get(1).getNeurons().get(2).getOutgoing().get(1).setWeight( 0.80426453911883720);
-
-	    layers.get(1).getNeurons().get(3).getOutgoing().get(0).setWeight(-0.61292677330547750);
-	    layers.get(1).getNeurons().get(3).getOutgoing().get(1).setWeight(-0.47900854555162420);
-
-	    // Weights From Hidden Layer 1 (Layer 2) To Output (Layer 3)
-	    layers.get(2).getNeurons().get(0).getOutgoing().get(0).setWeight(-0.70007024458959140);
-	    layers.get(2).getNeurons().get(1).getOutgoing().get(0).setWeight( 0.76015925454438230);
-	    
-	    // Hidden Layer 0 biases
-	    layers.get(1).getNeurons().get(0).setBias(0.78874876894524130);
-	    layers.get(1).getNeurons().get(1).setBias(0.98130160389828250);
-	    layers.get(1).getNeurons().get(2).setBias(-0.91000699720043880);
-	    layers.get(1).getNeurons().get(3).setBias(-0.76130048884048930);
-
-	    // Hidden Layer 1 biases
-	    layers.get(2).getNeurons().get(0).setBias(0.72773747552058250);
-	    layers.get(2).getNeurons().get(1).setBias(-0.37898926599938830);
-
-	    // Output Layer biases
-	    layers.get(3).getNeurons().get(0).setBias(0.26178720340242423);
 	}
 	
 	public int getNumberOfEpochs() 
@@ -723,7 +923,7 @@ public class NeuralNetwork
 	
 	public ArrayList<HashMap<Integer, Double>> getMseList()
 	{
-		return mseList;
+		return lossList;
 	}
 	
 	public boolean isBatch() {

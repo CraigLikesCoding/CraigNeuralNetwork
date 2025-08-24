@@ -2,9 +2,9 @@ package craig.ai.layers;
 
 import craig.ai.helpers.Helper.LossMode;
 
-public class TanhLayer extends GenericLayer implements Layer
+public class ReLULayer extends GenericLayer implements Layer
 {
-	public TanhLayer(int neuronCount)
+	public ReLULayer(int neuronCount)
 	{
 		super(neuronCount);
 	}
@@ -13,36 +13,35 @@ public class TanhLayer extends GenericLayer implements Layer
 	@Override
 	public double applyActivation(double x) 
 	{
-		return Math.tanh(x);
+		return Math.max(0, x);
 	}
 	
-	private double tanhDerivativeFromOutput(double tanhOutput) 
+	private double reLUDerivativeFromOutput(double reLUOutput) 
 	{
-        return 1.0 - (tanhOutput * tanhOutput);
+		return reLUOutput > 0 ? 1 : 0;
     }
 	
 	public double calculateHiddenDelta(double sumOfDeltas, double actualOutput)
 	{
 		// This is called for hidden Layers.  It takes the weighted sum (which is summed up elsewhere)
-		// and multiplies that by the derivative of the Tanh.
+		// and multiplies that by the derivative of the ReLU.
 		
-		return tanhDerivativeFromOutput(actualOutput) * sumOfDeltas;
+		return reLUDerivativeFromOutput(actualOutput) * sumOfDeltas;
 	}
 	
 	public double calculateOutputDelta(double expectedOutput, double actualOutput)
 	{
-		// This calculates the error and multiplies it by the derivative of the Tanh function
+		// This calculates the error and multiplies it by the derivative of the ReLU function
 		// Used only for output Layers
 		double error = actualOutput - expectedOutput;
 		
-        return error * tanhDerivativeFromOutput(actualOutput);
+        return error * reLUDerivativeFromOutput(actualOutput);
 	}
 	
 	public String getId()
 	{
-		return "TanhLayer_" + id;
+		return "ReLULayer_" + id;
 	}
-
 
 	@Override
 	public LossMode getLossMode() 

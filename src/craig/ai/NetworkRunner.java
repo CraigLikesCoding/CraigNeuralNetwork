@@ -2,34 +2,39 @@ package craig.ai;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
-import craig.ai.Helper.TrainingType;
 import craig.ai.external.Charting;
+import craig.ai.external.ImageLoader;
 import craig.ai.external.MNISTLoader;
+import craig.ai.external.TurtleSketchGenerator;
+import craig.ai.helpers.Helper;
+import craig.ai.helpers.Helper.TrainingType;
 
 public class NetworkRunner 
 {
 	// Number of epochs to run
-	final static int numberOfEpochs = 20;
+	final static int numberOfEpochs = 200;
 	
 	// Print epoch every N iterations
-	final static int epochIteration = 1;
+	final static int epochIteration = 10;
 	
 	// Learning rate
-	final static double learningRate = 0.02;
-	
-	// Number of total layers
-	final static int layerCount = 4;
+	final static double learningRate = 0.0005;
 	
 	// Number of nodes in each hidden layer
-	final static int[] nodesCount = {784, 128, 64, 10};
+	// For Turtle:
+	final static int[] nodesCount = {4096, 256, 64, 2};
+	// For Number Reading:
+	//final static int[] nodesCount = {784, 128, 64, 10};
+	
 	
 	// In the scenario where we generate randomized training rows, use this
 	final static int numberOfTrainingRows = 20;
 	
 	// Identify what type of training we're doing
-	final static TrainingType trainingType = TrainingType.NumberReading;
+	final static TrainingType trainingType = TrainingType.TurtleTraining;
 	
 	// Are we running learning in batches or stochastic?
 	final static boolean isBatch = true;
@@ -40,7 +45,7 @@ public class NetworkRunner
     @SuppressWarnings("unused")
 	public static void main(String[] args) 
     {
-        NeuralNetwork nn = new NeuralNetwork(numberOfEpochs, epochIteration, learningRate, layerCount, nodesCount);
+        NeuralNetwork nn = new NeuralNetwork(numberOfEpochs, epochIteration, learningRate, nodesCount.length, nodesCount);
         
         nn.initiateConnections();
         
@@ -49,6 +54,99 @@ public class NetworkRunner
         
         switch (trainingType)
         {
+        	case TrainingType.TurtleTesting:
+        	{
+        		List<double[]> inputs = new ArrayList<>();
+        		List<int[]> labels = new ArrayList<>();
+        		List<String> fileNames = new ArrayList<>();
+        		
+        		nn.loadExistingNetwork("/Users/craigadelhardt/Documents/NeuralNetworkExport/2025.08.23-10.32.12.json");
+
+ 
+        		String folderPath = "/Users/craigadelhardt/Documents/neural network testing images";
+        		
+        		try 
+        		{
+					ImageLoader.loadImages(folderPath, inputs, labels, fileNames);
+				} 
+        		catch (IOException e) 
+        		{
+					System.out.println("Problem loading images");
+					e.printStackTrace();
+				}
+        		
+				double[][] actualTestOutputs = new double[inputs.size()][labels.get(0).length];
+				double[][] actualTestInputs = new double[labels.size()][inputs.get(0).length];
+				
+        		for (int i = 0; i < inputs.size(); i++)
+        		{
+        			for (int j = 0; j < inputs.get(i).length; j++)
+        			{
+        				actualTestInputs[i][j] = inputs.get(i)[j];
+        			}
+        			
+        			for (int j = 0; j < labels.get(i).length; j++)
+        			{
+        				actualTestOutputs[i][j] = labels.get(i)[j];
+        			}
+        		}
+				
+				nn.printTurtleResults(actualTestInputs, actualTestOutputs, fileNames);
+        	
+        		break;
+        	}        	
+        	case TrainingType.TurtleTraining:
+        	{       		
+        		String folderPath = "/Users/craigadelhardt/Documents/neural network learning images/";
+        		        		
+        		List<double[]> inputs = new ArrayList<>();
+        		List<int[]> labels = new ArrayList<>();
+        		List<String> fileNames = new ArrayList<>();
+ 
+        		try 
+        		{
+					ImageLoader.loadImages(folderPath, inputs, labels, fileNames);
+				} 
+        		catch (IOException e) 
+        		{
+					System.out.println("Problem loading images");
+					e.printStackTrace();
+				}
+        		
+        		double[][] trainingInputs = new double[inputs.size()][inputs.get(0).length];
+        		double[][] trainingOutputs = new double[labels.size()][labels.get(0).length];        		
+        		
+        		for (int i = 0; i < inputs.size(); i++)
+        		{
+        			for (int j = 0; j < inputs.get(i).length; j++)
+        			{
+        				trainingInputs[i][j] = inputs.get(i)[j];
+        			}
+        			
+        			for (int j = 0; j < labels.get(i).length; j++)
+        			{
+        				trainingOutputs[i][j] = labels.get(i)[j];
+        			}
+        		}
+        		
+        		nn.train(trainingInputs, trainingOutputs);
+				
+				System.out.println("Network learning is complete:");
+				
+				nn.exportWeightsAndBiases();
+
+				// Commented out for now because this only works with a scalar Loss function.  I recently
+				// switched from MSE to CCE and with that, there's only one Loss per epoch (as opposed
+				// to one Loss per output Neuron).  The Charting expects one list per Neuron and we're not
+				// providing that yet.  So eventually I'll have to code a Charting.plotCCE() function
+				// but for now I just won't display a chart after the training run.		
+/*              ArrayList<String> titles = new ArrayList<>();
+                titles.add("Output 0");
+
+                Charting.plotMSE(nn.getMseList(), titles);*/
+        	
+        		break;
+        	}        	
         	case TrainingType.NumberReading:
         	{        		
         		try 
@@ -129,9 +227,8 @@ public class NetworkRunner
         	}
         	case TrainingType.FourFunctions:
         	{
-                // Self created training nodes:	
-                //nn.seedNetwork();
-            	
+        		// Make sure your network is set up for 1 input and 4 outputs (and whatever hidden neurons you want).
+        		
             	// This train function is called when we will use the Helper class to generate
             	// our inputs/expectedOutputs training data.  Each epoch, we'll generate x 
             	// number of rows of training data.  And at this point, we're going to train the network

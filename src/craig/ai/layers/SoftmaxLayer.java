@@ -2,7 +2,8 @@ package craig.ai.layers;
 
 import java.util.Arrays;
 
-import craig.ai.GenericLayer;
+import craig.ai.helpers.Helper.LossMode;
+import craig.ai.loss.VectorLoss;
 
 public class SoftmaxLayer extends GenericLayer implements Layer
 {
@@ -56,7 +57,7 @@ public class SoftmaxLayer extends GenericLayer implements Layer
 	public double[] applyActivation(double[] weightedSums)
 	{
 		// SoftmaxLayer is different than Tanh or Sigmoid.  Those methods activate at a per Neuron basis.  However,
-		// SoftmaxLayer does it's calculation based on all the Neurons in this Layer.  As of this implementation,
+		// SoftmaxLayer does its calculation based on all the Neurons in this Layer.  As of this implementation,
 		// this will only be for the output Layer.  
 		
 		// First up, get the maximum value of the weighted sums passed in
@@ -101,16 +102,51 @@ public class SoftmaxLayer extends GenericLayer implements Layer
 	@Override
 	public double calculateOutputDelta(double expectedOutput, double actualOutput) 
 	{
-		// This calculates the error and multiplies it by the derivative of the activation function.
-		// Used only for output Layers.
-		// Believe it or not, there's no derivative needed here.  We just subtract the expecteOutput
-		// from the actualOutput and return that.  For Softmax + categorical cross-entropy, derivative 
-		// simplifies to (y_pred - y_true)
-		return (actualOutput - expectedOutput);
+		throw new UnsupportedOperationException("SoftmaxLayer.calculateOutputDelta should not be called as it is a scalar function.");
 	}
 
+	@Override
+	public void backwardDeltaCalculateOutputLayer(double[] expectedOutput) 
+	{
+		// This function is already defined in GenericLayer.  However GenericLayer is only coded 
+		// for scalar Loss functions.  Softmax will use a vector based Loss function (CCE specifically),
+		// so we need to override this method to call a vector version of calculateOutputDelta
+		// which the GenericLayer knows nothing about.
+		
+		// Normally calculateOutputDelta would be called from here, but that is a scalar only 
+		// function and will only throw an error if it is called from SoftmaxLayer (because SoftmaxLayer
+		// is, by definition, vector only).
+			
+		// First thing is to build a double array of actual output values from this Layer:
+		double[] actualOutput = new double[neurons.size()];
+		
+    	for (int i = 0; i < neurons.size(); i++)
+    	{
+    		actualOutput[i] = neurons.get(i).getOutputValue();
+    	}
+    	
+    	// Now we have both actual and expected values for every Neuron in this Layer.
+    	// So pass them to the Loss object's lossDerivative function to get an output array
+    	double[] outputDeltas = new double[neurons.size()];
+    	
+    	outputDeltas = ((VectorLoss)loss).lossDerivative(expectedOutput, actualOutput);
+		
+      	// First thing is to iterate through the Neurons in this layer and calculate and set the 
+      	// delta value (which is basically the derivative of the the activation) for these Neurons.  
+    	for (int i = 0; i < neurons.size(); i++)
+    	{    		
+    		neurons.get(i).setDelta(outputDeltas[i]);
+    	}
+	}
+	
 	public String getId()
 	{
 		return "SoftmaxLayer_" + id;
-	}	
+	}
+	
+	@Override
+	public LossMode getLossMode() 
+	{
+		return getLoss().getMode();
+	}
 }
